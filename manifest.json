@@ -1,0 +1,11 @@
+{
+	"id": "obsidian-enhanced-graph",
+	"name": "Obsidian Enhanced Graph",
+	"version": "1.0.0",
+	"minAppVersion": "1.0.0",
+	"description": "Enhances the graph view with PageRank node sizing, intelligent defaults, auto-coloring for folders, and a mass-move feature.",
+	"author": "z3z0",
+	"authorUrl": "",
+	"fundingUrl": "",
+	"isDesktopOnly": true
+}
