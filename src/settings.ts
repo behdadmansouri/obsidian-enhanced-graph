@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, PluginSettingTab, Setting, TFolder } from 'obsidian';
 import EnhancedGraphPlugin from './main';
 
 export interface EnhancedGraphSettings {
@@ -55,7 +55,41 @@ export class EnhancedGraphSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.autoColorRootFolders)
 				.onChange(async (value) => {
 					this.plugin.settings.autoColorRootFolders = value;
+					this.display(); // re-render to show/hide colors
 					await this.plugin.saveSettings();
 				}));
+
+        if (this.plugin.settings.autoColorRootFolders) {
+            containerEl.createEl('h3', { text: 'Folder Colors' });
+            containerEl.createEl('p', { text: 'Assign permanent colors for your root folders here.' });
+
+            const rootFolders = this.app.vault.getRoot().children.filter(c => c instanceof TFolder) as TFolder[];
+            
+            // Default visually appealing colors to cycle through if not set
+            const defaultColors = ['#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF', '#D0BAFF', '#FFBAED', '#BAFFF3'];
+
+            for (let i = 0; i < rootFolders.length; i++) {
+                const folder = rootFolders[i];
+                if (!folder) continue;
+                
+                const currentColor = this.plugin.settings.customFolderColors[folder.path] || defaultColors[i % defaultColors.length] || '#ffffff';
+
+                // Ensure it's saved if it was falling back to default
+                if (!this.plugin.settings.customFolderColors[folder.path]) {
+                    this.plugin.settings.customFolderColors[folder.path] = currentColor;
+                    // Intentionally not saving here to avoid excessive writes during render, it will save when they change it
+                }
+
+                new Setting(containerEl)
+                    .setName(folder.path)
+                    .addColorPicker(color => color
+                        .setValue(currentColor)
+                        .onChange(async (value) => {
+                            this.plugin.settings.customFolderColors[folder.path] = value;
+                            await this.plugin.saveSettings();
+                        })
+                    );
+            }
+        }
 	}
 }
