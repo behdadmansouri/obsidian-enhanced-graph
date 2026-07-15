@@ -6,13 +6,27 @@ export interface EnhancedGraphSettings {
 	globalPageRank: boolean;
 	autoColorRootFolders: boolean;
 	customFolderColors: Record<string, string>;
+
+    // Exact Default Values
+    defaultCenterForce: number;
+    defaultRepelForce: number;
+    defaultLinkForce: number;
+    defaultLinkDistance: number;
+    defaultTextFade: number;
+    defaultDepth: number;
 }
 
 export const DEFAULT_SETTINGS: EnhancedGraphSettings = {
 	enablePageRank: true,
 	globalPageRank: false,
 	autoColorRootFolders: true,
-	customFolderColors: {}
+	customFolderColors: {},
+    defaultCenterForce: 1,
+    defaultRepelForce: 20,
+    defaultLinkForce: 1,
+    defaultLinkDistance: 30,
+    defaultTextFade: -3,
+    defaultDepth: 1
 }
 
 export class EnhancedGraphSettingTab extends PluginSettingTab {
@@ -27,6 +41,83 @@ export class EnhancedGraphSettingTab extends PluginSettingTab {
 		const {containerEl} = this;
 		containerEl.empty();
 		containerEl.createEl('h2', {text: 'Enhanced Graph Settings'});
+
+        containerEl.createEl('h3', {text: 'Exact Graph Defaults'});
+        containerEl.createEl('p', {text: 'These values will be applied exactly every time a new local graph opens.'});
+
+        new Setting(containerEl)
+            .setName('Default Center Force')
+            .addText(text => text
+                .setValue(String(this.plugin.settings.defaultCenterForce))
+                .onChange(async (value) => {
+                    const parsed = parseFloat(value);
+                    if (!isNaN(parsed)) {
+                        this.plugin.settings.defaultCenterForce = parsed;
+                        await this.plugin.saveSettings();
+                    }
+                }));
+
+        new Setting(containerEl)
+            .setName('Default Repel Force')
+            .addText(text => text
+                .setValue(String(this.plugin.settings.defaultRepelForce))
+                .onChange(async (value) => {
+                    const parsed = parseFloat(value);
+                    if (!isNaN(parsed)) {
+                        this.plugin.settings.defaultRepelForce = parsed;
+                        await this.plugin.saveSettings();
+                    }
+                }));
+
+        new Setting(containerEl)
+            .setName('Default Link Force')
+            .addText(text => text
+                .setValue(String(this.plugin.settings.defaultLinkForce))
+                .onChange(async (value) => {
+                    const parsed = parseFloat(value);
+                    if (!isNaN(parsed)) {
+                        this.plugin.settings.defaultLinkForce = parsed;
+                        await this.plugin.saveSettings();
+                    }
+                }));
+
+        new Setting(containerEl)
+            .setName('Default Link Distance')
+            .addText(text => text
+                .setValue(String(this.plugin.settings.defaultLinkDistance))
+                .onChange(async (value) => {
+                    const parsed = parseFloat(value);
+                    if (!isNaN(parsed)) {
+                        this.plugin.settings.defaultLinkDistance = parsed;
+                        await this.plugin.saveSettings();
+                    }
+                }));
+
+        new Setting(containerEl)
+            .setName('Default Text Fade Threshold')
+            .addText(text => text
+                .setValue(String(this.plugin.settings.defaultTextFade))
+                .onChange(async (value) => {
+                    const parsed = parseFloat(value);
+                    if (!isNaN(parsed)) {
+                        this.plugin.settings.defaultTextFade = parsed;
+                        await this.plugin.saveSettings();
+                    }
+                }));
+
+        new Setting(containerEl)
+            .setName('Default Depth (Jumps)')
+            .addText(text => text
+                .setValue(String(this.plugin.settings.defaultDepth))
+                .onChange(async (value) => {
+                    const parsed = parseFloat(value);
+                    if (!isNaN(parsed)) {
+                        this.plugin.settings.defaultDepth = parsed;
+                        await this.plugin.saveSettings();
+                    }
+                }));
+
+        containerEl.createEl('h3', {text: 'Node Sizing & Colors'});
 
 		new Setting(containerEl)
 			.setName('Enable PageRank Node Sizing')
@@ -55,17 +146,15 @@ export class EnhancedGraphSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.autoColorRootFolders)
 				.onChange(async (value) => {
 					this.plugin.settings.autoColorRootFolders = value;
-					this.display(); // re-render to show/hide colors
+					this.display(); 
 					await this.plugin.saveSettings();
 				}));
 
         if (this.plugin.settings.autoColorRootFolders) {
-            containerEl.createEl('h3', { text: 'Folder Colors' });
+            containerEl.createEl('h4', { text: 'Folder Colors' });
             containerEl.createEl('p', { text: 'Assign permanent colors for your root folders here.' });
 
             const rootFolders = this.app.vault.getRoot().children.filter(c => c instanceof TFolder) as TFolder[];
-            
-            // Default visually appealing colors to cycle through if not set
             const defaultColors = ['#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF', '#D0BAFF', '#FFBAED', '#BAFFF3'];
 
             for (let i = 0; i < rootFolders.length; i++) {
@@ -74,10 +163,8 @@ export class EnhancedGraphSettingTab extends PluginSettingTab {
                 
                 const currentColor = this.plugin.settings.customFolderColors[folder.path] || defaultColors[i % defaultColors.length] || '#ffffff';
 
-                // Ensure it's saved if it was falling back to default
                 if (!this.plugin.settings.customFolderColors[folder.path]) {
                     this.plugin.settings.customFolderColors[folder.path] = currentColor;
-                    // Intentionally not saving here to avoid excessive writes during render, it will save when they change it
                 }
 
                 new Setting(containerEl)
