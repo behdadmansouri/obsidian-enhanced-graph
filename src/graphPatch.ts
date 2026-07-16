@@ -1,14 +1,11 @@
 import { App, WorkspaceLeaf, TFile, TFolder } from 'obsidian';
 import { EnhancedGraphSettings } from './settings';
-import { computeGlobalPageRank, computeLocalPageRank, PageRankScores } from './pagerank';
 import { MoveVisibleModal } from './ui';
 
 export class GraphPatcher {
     app: App;
     settings: EnhancedGraphSettings;
     
-    cachedGlobalPageRank: PageRankScores | null = null;
-    cachedLocalPageRanks: Map<string, PageRankScores> = new Map(); 
 
     patchedLeaves: Set<string> = new Set();
     observers: Map<string, MutationObserver> = new Map();
@@ -93,7 +90,6 @@ export class GraphPatcher {
         const leafId = (leaf as any).id;
 
         this.observeControls(leaf, leafId);
-        this.patchRendererNodeSizing(leaf, view);
     }
 
     intervals: Map<string, NodeJS.Timeout> = new Map();
@@ -262,69 +258,5 @@ export class GraphPatcher {
         return files;
     }
 
-    patchRendererNodeSizing(leaf: WorkspaceLeaf, view: any) {
-        if (!view.renderer) return;
 
-        const originalUpdateNodes = view.renderer.updateNodes || view.renderer.renderNodes;
-        if (!originalUpdateNodes) return;
-
-        const leafId = (leaf as any).id;
-        const plugin = this;
-
-        // We calculate PR scores once per data change, but apply the visual scale on EVERY frame.
-        // This stops Obsidian from continuously resetting the size back to "hops-from-root",
-        // without touching node.weight to avoid fighting the physics engine.
-        let lastNodeCount = -1;
-        let currentPrScores: PageRankScores = {};
-        let currentMaxPr = 0.0001;
-
-        const patchedMethod = function (this: any, ...args: any[]) {
-            const result = originalUpdateNodes.apply(this, args);
-
-            if (plugin.settings.enablePageRank) {
-                const nodes = this.nodes || [];
-                
-                if (nodes.length !== lastNodeCount) {
-                    lastNodeCount = nodes.length;
-                    
-                    if (plugin.settings.globalPageRank) {
-                        if (!plugin.cachedGlobalPageRank) plugin.cachedGlobalPageRank = computeGlobalPageRank(plugin.app);
-                        currentPrScores = plugin.cachedGlobalPageRank;
-                    } else {
-                        if (!plugin.cachedLocalPageRanks.has(leafId)) {
-                            const nodeIds = nodes.map((n: any) => n.id).filter(Boolean);
-                            plugin.cachedLocalPageRanks.set(leafId, computeLocalPageRank(nodeIds, plugin.app));
-                        }
-                        currentPrScores = plugin.cachedLocalPageRanks.get(leafId)!;
-                    }
-                    currentMaxPr = Math.max(...Object.values(currentPrScores), 0.0001);
-                }
-
-                // Apply visual scale on EVERY frame because Obsidian overwrites viewObject.scale continuously
-                for (const node of nodes) {
-                    if (node.id) {
-                        const prScore = currentPrScores[node.id] || 0.0001;
-                        const normalized = (prScore / currentMaxPr);
-                        const newScale = 1 + (normalized * 3); 
-                        
-                        if (node.info) node.info.scale = newScale; 
-                        if (node.viewObject) node.viewObject.scale.set(newScale, newScale);
-                    }
-                }
-            }
-
-            return result;
-        };
-
-        if (view.renderer.updateNodes) {
-            view.renderer.updateNodes = patchedMethod;
-        } else {
-            view.renderer.renderNodes = patchedMethod;
-        }
-    }
-
-    clearCache() {
-        this.cachedGlobalPageRank = null;
-        this.cachedLocalPageRanks.clear();
-    }
 }

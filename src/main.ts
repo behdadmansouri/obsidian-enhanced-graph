@@ -21,11 +21,6 @@ export default class EnhancedGraphPlugin extends Plugin {
 			})
 		);
 
-		// Register file events to invalidate PageRank caches
-		this.registerEvent(this.app.vault.on('modify', () => this.patcher.clearCache()));
-		this.registerEvent(this.app.vault.on('create', () => this.patcher.clearCache()));
-		this.registerEvent(this.app.vault.on('delete', () => this.patcher.clearCache()));
-		this.registerEvent(this.app.vault.on('rename', () => this.patcher.clearCache()));
 
 		// Command: Open Local Graph in New Tab
 		this.addCommand({
@@ -61,7 +56,7 @@ export default class EnhancedGraphPlugin extends Plugin {
 
 	onunload() {
 		// Clean up injected UI elements if necessary, though closing the graph handles most of it.
-		this.patcher.clearCache();
+
 	}
 
 	async loadSettings() {
@@ -73,7 +68,7 @@ export default class EnhancedGraphPlugin extends Plugin {
 		// Update patcher settings ref
 		this.patcher.settings = this.settings;
 		// Re-apply layout changes to active graphs
-		this.patcher.clearCache();
+
 		this.patcher.onLayoutChange();
 	}
 }

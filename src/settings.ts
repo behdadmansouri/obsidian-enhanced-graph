@@ -2,8 +2,7 @@ import { App, PluginSettingTab, Setting, TFolder } from 'obsidian';
 import EnhancedGraphPlugin from './main';
 
 export interface EnhancedGraphSettings {
-	enablePageRank: boolean;
-	globalPageRank: boolean;
+
 	autoColorRootFolders: boolean;
 	customFolderColors: Record<string, string>;
 
@@ -17,8 +16,7 @@ export interface EnhancedGraphSettings {
 }
 
 export const DEFAULT_SETTINGS: EnhancedGraphSettings = {
-	enablePageRank: true,
-	globalPageRank: false,
+
 	autoColorRootFolders: true,
 	customFolderColors: {},
     defaultCenterForce: 1,
@@ -119,25 +117,7 @@ export class EnhancedGraphSettingTab extends PluginSettingTab {
 
         containerEl.createEl('h3', {text: 'Node Sizing & Colors'});
 
-		new Setting(containerEl)
-			.setName('Enable PageRank Node Sizing')
-			.setDesc('Scale local graph nodes based on a light PageRank algorithm instead of distance from center.')
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.enablePageRank)
-				.onChange(async (value) => {
-					this.plugin.settings.enablePageRank = value;
-					await this.plugin.saveSettings();
-				}));
 
-		new Setting(containerEl)
-			.setName('Use Global PageRank')
-			.setDesc('Calculate PageRank over the entire vault instead of just the local graph nodes.')
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.globalPageRank)
-				.onChange(async (value) => {
-					this.plugin.settings.globalPageRank = value;
-					await this.plugin.saveSettings();
-				}));
 
 		new Setting(containerEl)
 			.setName('Auto-Color Root Folders')
