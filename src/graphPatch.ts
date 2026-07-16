@@ -166,7 +166,13 @@ export class GraphPatcher {
             wrapper.appendChild(okBtn);
 
             searchInput.style.display = 'none';
-            searchInput.parentElement?.appendChild(wrapper);
+            const parentContainer = searchInput.parentElement;
+            if (parentContainer) {
+                parentContainer.style.height = 'auto';
+                parentContainer.style.minHeight = '30px';
+                parentContainer.style.overflow = 'visible';
+                parentContainer.appendChild(wrapper);
+            }
         }
 
         // B. Depth Slider to 10
@@ -189,10 +195,9 @@ export class GraphPatcher {
                         customRange.step = '1';
                         customRange.className = originalRange.className;
                         
-                        // Sync initial value from ViewState
-                        const state = leaf.getViewState();
-                        const sState = state.state as any;
-                        customRange.value = sState?.options?.localJumps?.toString() || '1';
+                        // Sync initial value from engine
+                        const engine = (leaf.view as any).engine;
+                        customRange.value = engine?.options?.localJumps?.toString() || '1';
 
                         const textDisplay = parent.querySelector('.slider-readout');
                         if (textDisplay) textDisplay.textContent = customRange.value;
@@ -201,13 +206,12 @@ export class GraphPatcher {
                             const val = (e.target as HTMLInputElement).value;
                             if (textDisplay) textDisplay.textContent = val;
                             
-                            // Immediately apply jumps to ViewState
-                            const s = leaf.getViewState();
-                            const st = s.state as any;
-                            if (!st) s.state = {} as any;
-                            if (!st?.options) st.options = {};
-                            st.options.localJumps = parseInt(val, 10);
-                            leaf.setViewState(s);
+                            // Immediately apply jumps to engine to bypass ViewState strict clamp
+                            if (engine && engine.options) {
+                                engine.options.localJumps = parseInt(val, 10);
+                                if (typeof engine.update === 'function') engine.update();
+                                else if (typeof engine.render === 'function') engine.render();
+                            }
                         });
 
                         originalRange.parentElement?.appendChild(customRange);
