@@ -46,6 +46,7 @@ export class GraphPatcher {
         s.options.localJumps = this.settings.defaultDepth;
         s.options.localBacklinks = true;
         s.options.showAttachments = false;
+        s.options.showUncreated = false; // "Existing files only" ON
         
         s.options.centerStrength = this.settings.defaultCenterForce;
         s.options.repelStrength = this.settings.defaultRepelForce;
@@ -179,15 +180,41 @@ export class GraphPatcher {
             if (label.innerText.toLowerCase().includes('depth') || label.innerText.toLowerCase().includes('jumps')) {
                 const parent = label.parentElement;
                 if (parent) {
-                    const range = parent.querySelector('input[type="range"]') as HTMLInputElement;
-                    if (range && range.max === '5') {
-                        range.max = '10';
+                    const originalRange = parent.querySelector('input[type="range"]') as HTMLInputElement;
+                    // Fully replace the React slider to break its 5-max limit
+                    if (originalRange && !originalRange.dataset.enhanced) {
+                        originalRange.dataset.enhanced = 'true';
+                        originalRange.style.display = 'none'; // Hide native React slider
+
+                        const customRange = document.createElement('input');
+                        customRange.type = 'range';
+                        customRange.min = '1';
+                        customRange.max = '10';
+                        customRange.step = '1';
+                        customRange.className = originalRange.className;
                         
-                        range.addEventListener('input', (e) => {
+                        // Sync initial value from ViewState
+                        const state = leaf.getViewState();
+                        const sState = state.state as any;
+                        customRange.value = sState?.options?.localJumps?.toString() || '1';
+
+                        const textDisplay = parent.querySelector('.slider-readout');
+                        if (textDisplay) textDisplay.textContent = customRange.value;
+
+                        customRange.addEventListener('input', (e) => {
                             const val = (e.target as HTMLInputElement).value;
-                            const textDisplay = parent.querySelector('.slider-readout');
                             if (textDisplay) textDisplay.textContent = val;
+                            
+                            // Immediately apply jumps to ViewState
+                            const s = leaf.getViewState();
+                            const st = s.state as any;
+                            if (!st) s.state = {} as any;
+                            if (!st?.options) st.options = {};
+                            st.options.localJumps = parseInt(val, 10);
+                            leaf.setViewState(s);
                         });
+
+                        originalRange.parentElement?.appendChild(customRange);
                     }
                 }
             }
@@ -244,8 +271,12 @@ export class GraphPatcher {
         const leafId = (leaf as any).id;
         const plugin = this;
 
-        // We only calculate PR once per data change, then let physics run
+        // We calculate PR scores once per data change, but apply the visual scale on EVERY frame.
+        // This stops Obsidian from continuously resetting the size back to "hops-from-root",
+        // without touching node.weight to avoid fighting the physics engine.
         let lastNodeCount = -1;
+        let currentPrScores: PageRankScores = {};
+        let currentMaxPr = 0.0001;
 
         const patchedMethod = function (this: any, ...args: any[]) {
             const result = originalUpdateNodes.apply(this, args);
@@ -253,35 +284,31 @@ export class GraphPatcher {
             if (plugin.settings.enablePageRank) {
                 const nodes = this.nodes || [];
                 
-                // Only re-apply scaling if node count changes (data load) to prevent frame fighting
                 if (nodes.length !== lastNodeCount) {
                     lastNodeCount = nodes.length;
-
-                    let prScores: PageRankScores = {};
+                    
                     if (plugin.settings.globalPageRank) {
-                        if (!plugin.cachedGlobalPageRank) {
-                            plugin.cachedGlobalPageRank = computeGlobalPageRank(plugin.app);
-                        }
-                        prScores = plugin.cachedGlobalPageRank;
+                        if (!plugin.cachedGlobalPageRank) plugin.cachedGlobalPageRank = computeGlobalPageRank(plugin.app);
+                        currentPrScores = plugin.cachedGlobalPageRank;
                     } else {
                         if (!plugin.cachedLocalPageRanks.has(leafId)) {
                             const nodeIds = nodes.map((n: any) => n.id).filter(Boolean);
                             plugin.cachedLocalPageRanks.set(leafId, computeLocalPageRank(nodeIds, plugin.app));
                         }
-                        prScores = plugin.cachedLocalPageRanks.get(leafId)!;
+                        currentPrScores = plugin.cachedLocalPageRanks.get(leafId)!;
                     }
+                    currentMaxPr = Math.max(...Object.values(currentPrScores), 0.0001);
+                }
 
-                    const maxPr = Math.max(...Object.values(prScores), 0.0001);
-                    for (const node of nodes) {
-                        if (node.id) {
-                            const prScore = prScores[node.id] || 0.0001;
-                            const normalized = (prScore / maxPr);
-                            const newScale = 1 + (normalized * 3); 
-                            
-                            // Only set visually, avoid touching weight which physics depends on continuously
-                            if (node.info) node.info.scale = newScale; 
-                            if (node.viewObject) node.viewObject.scale.set(newScale, newScale);
-                        }
+                // Apply visual scale on EVERY frame because Obsidian overwrites viewObject.scale continuously
+                for (const node of nodes) {
+                    if (node.id) {
+                        const prScore = currentPrScores[node.id] || 0.0001;
+                        const normalized = (prScore / currentMaxPr);
+                        const newScale = 1 + (normalized * 3); 
+                        
+                        if (node.info) node.info.scale = newScale; 
+                        if (node.viewObject) node.viewObject.scale.set(newScale, newScale);
                     }
                 }
             }
