@@ -9,7 +9,7 @@ export default class EnhancedGraphPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
-		this.patcher = new GraphPatcher(this.app, this.settings);
+		this.patcher = new GraphPatcher(this);
 
 		// Add settings tab
 		this.addSettingTab(new EnhancedGraphSettingTab(this.app, this));

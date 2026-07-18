@@ -1,5 +1,6 @@
 import { App, WorkspaceLeaf, TFile, TFolder } from 'obsidian';
 import { EnhancedGraphSettings } from './settings';
+import EnhancedGraphPlugin from './main';
 import { MoveVisibleModal } from './ui';
 
 export class GraphPatcher {
@@ -7,12 +8,15 @@ export class GraphPatcher {
     settings: EnhancedGraphSettings;
     
 
+    plugin: EnhancedGraphPlugin;
+
     patchedLeaves: Set<string> = new Set();
     observers: Map<string, MutationObserver> = new Map();
 
-    constructor(app: App, settings: EnhancedGraphSettings) {
-        this.app = app;
-        this.settings = settings;
+    constructor(plugin: EnhancedGraphPlugin) {
+        this.plugin = plugin;
+        this.app = plugin.app;
+        this.settings = plugin.settings;
     }
 
     onLayoutChange() {
@@ -44,6 +48,7 @@ export class GraphPatcher {
         s.options.localBacklinks = true;
         s.options.showAttachments = false;
         s.options.showUncreated = false; // "Existing files only" ON
+        s.options.showUnresolved = false; // "Existing files only" ON (alternative internal name)
         
         s.options.centerStrength = this.settings.defaultCenterForce;
         s.options.repelStrength = this.settings.defaultRepelForce;
@@ -90,6 +95,7 @@ export class GraphPatcher {
         const leafId = (leaf as any).id;
 
         this.observeControls(leaf, leafId);
+        this.patchRendererUpdateNodes(leaf, view);
     }
 
     intervals: Map<string, NodeJS.Timeout> = new Map();
@@ -121,58 +127,94 @@ export class GraphPatcher {
     }
 
     enhanceGraphUI(leaf: WorkspaceLeaf, controls: HTMLElement) {
-        // A. Search Input Enhancement
-        const searchInput = controls.querySelector('.search-input-container input') as HTMLInputElement;
-        if (searchInput && !searchInput.dataset.enhanced) {
-            searchInput.dataset.enhanced = 'true';
-            
-            const wrapper = document.createElement('div');
-            wrapper.style.display = 'flex';
-            wrapper.style.flexDirection = 'column';
-            wrapper.style.width = '100%';
+        // A. Exclude Files UI (replaces custom search bar text area)
+        const searchInputContainer = controls.querySelector('.search-input-container');
+        if (searchInputContainer && !searchInputContainer.parentElement?.querySelector('.exclude-panel-enhanced')) {
+            const excludePanel = document.createElement('div');
+            excludePanel.className = 'exclude-panel-enhanced';
+            excludePanel.style.marginTop = '10px';
+            excludePanel.style.padding = '10px';
+            excludePanel.style.border = '1px solid var(--background-modifier-border)';
+            excludePanel.style.borderRadius = '4px';
 
-            const textarea = document.createElement('textarea');
-            textarea.style.resize = 'none';
-            textarea.style.minHeight = '30px';
-            textarea.style.height = '30px';
-            textarea.style.overflow = 'hidden';
-            textarea.style.width = '100%';
-            textarea.placeholder = searchInput.placeholder;
-            textarea.value = searchInput.value;
+            const title = document.createElement('div');
+            title.innerText = 'Excluded Files';
+            title.style.fontWeight = 'bold';
+            title.style.marginBottom = '5px';
+            excludePanel.appendChild(title);
 
-            textarea.addEventListener('input', () => {
-                textarea.style.height = '30px';
-                textarea.style.height = textarea.scrollHeight + 'px';
-            });
+            const inputRow = document.createElement('div');
+            inputRow.style.display = 'flex';
+            inputRow.style.gap = '5px';
+            inputRow.style.marginBottom = '10px';
 
-            const okBtn = document.createElement('button');
-            okBtn.innerText = 'OK';
-            okBtn.style.marginTop = '4px';
-            okBtn.style.alignSelf = 'flex-end';
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.placeholder = 'Exact file name...';
+            input.style.flex = '1';
 
-            okBtn.addEventListener('click', () => {
-                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-                if (nativeInputValueSetter) {
-                    nativeInputValueSetter.call(searchInput, textarea.value);
-                } else {
-                    searchInput.value = textarea.value;
+            const addBtn = document.createElement('button');
+            addBtn.innerText = 'Add';
+            addBtn.className = 'mod-cta';
+
+            inputRow.appendChild(input);
+            inputRow.appendChild(addBtn);
+            excludePanel.appendChild(inputRow);
+
+            const listContainer = document.createElement('div');
+            listContainer.style.display = 'flex';
+            listContainer.style.flexDirection = 'column';
+            listContainer.style.gap = '2px';
+            excludePanel.appendChild(listContainer);
+
+            const renderList = () => {
+                listContainer.empty();
+                for (const file of this.settings.globalExcludeList) {
+                    const item = document.createElement('div');
+                    item.style.display = 'flex';
+                    item.style.justifyContent = 'space-between';
+                    item.style.alignItems = 'center';
+                    item.style.fontSize = '12px';
+
+                    const name = document.createElement('span');
+                    name.innerText = file;
+                    name.style.overflow = 'hidden';
+                    name.style.textOverflow = 'ellipsis';
+                    name.style.whiteSpace = 'nowrap';
+
+                    const delBtn = document.createElement('button');
+                    delBtn.innerText = 'X';
+                    delBtn.style.padding = '0 4px';
+                    delBtn.style.height = '20px';
+                    delBtn.addEventListener('click', async () => {
+                        this.settings.globalExcludeList = this.settings.globalExcludeList.filter(f => f !== file);
+                        await this.plugin.saveSettings();
+                        renderList();
+                        this.triggerGraphUpdate(leaf);
+                    });
+
+                    item.appendChild(name);
+                    item.appendChild(delBtn);
+                    listContainer.appendChild(item);
                 }
-                
-                searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-                searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+            };
+
+            addBtn.addEventListener('click', async () => {
+                const val = input.value.trim();
+                if (val && !this.settings.globalExcludeList.includes(val)) {
+                    this.settings.globalExcludeList.push(val);
+                    await this.plugin.saveSettings();
+                    input.value = '';
+                    renderList();
+                    this.triggerGraphUpdate(leaf);
+                }
             });
 
-            wrapper.appendChild(textarea);
-            wrapper.appendChild(okBtn);
+            renderList();
+            searchInputContainer.parentElement?.insertBefore(excludePanel, searchInputContainer.nextSibling);
 
-            searchInput.style.display = 'none';
-            const parentContainer = searchInput.parentElement;
-            if (parentContainer) {
-                parentContainer.style.height = 'auto';
-                parentContainer.style.minHeight = '30px';
-                parentContainer.style.overflow = 'visible';
-                parentContainer.appendChild(wrapper);
-            }
+            // Hook Alt+Click on Canvas
+            this.hookAltClick(leaf, renderList);
         }
 
         // B. Depth Slider to 10
@@ -252,7 +294,7 @@ export class GraphPatcher {
         }
 
         for (const node of nodes) {
-            if (node.id) {
+            if (node.id && !this.settings.globalExcludeList.includes(node.id)) {
                 const file = this.app.vault.getAbstractFileByPath(node.id);
                 if (file instanceof TFile) {
                     files.push(file);
@@ -262,5 +304,74 @@ export class GraphPatcher {
         return files;
     }
 
+    triggerGraphUpdate(leaf: WorkspaceLeaf) {
+        const view: any = leaf.view;
+        if (view && view.engine) {
+            if (typeof view.engine.update === 'function') view.engine.update();
+            else if (typeof view.engine.render === 'function') view.engine.render();
+        }
+    }
 
+    hookAltClick(leaf: WorkspaceLeaf, renderList: () => void) {
+        const view: any = leaf.view;
+        if (!view.containerEl) return;
+        
+        const canvas = view.containerEl.querySelector('canvas');
+        if (!canvas || canvas.dataset.altClickHooked) return;
+        canvas.dataset.altClickHooked = 'true';
+
+        canvas.addEventListener('click', async (e: MouseEvent) => {
+            if (e.altKey) {
+                // Find hovered node
+                const renderer = view.renderer;
+                if (!renderer) return;
+                
+                // Usually PIXI stores the hovered node in hoverNode or interactiveNode
+                const node = renderer.hoverNode || renderer.hoveredNode || renderer.nodeUnderMouse || renderer.highlightedNode;
+                if (node && node.id) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const val = node.id;
+                    if (!this.settings.globalExcludeList.includes(val)) {
+                        this.settings.globalExcludeList.push(val);
+                        await this.plugin.saveSettings();
+                        renderList();
+                        this.triggerGraphUpdate(leaf);
+                    }
+                }
+            }
+        }, true); // use capture phase
+    }
+
+    patchRendererUpdateNodes(leaf: WorkspaceLeaf, view: any) {
+        if (!view.renderer) return;
+        const originalUpdateNodes = view.renderer.updateNodes || view.renderer.renderNodes;
+        if (!originalUpdateNodes || view.renderer.isEnhancedPatched) return;
+        view.renderer.isEnhancedPatched = true;
+
+        const plugin = this.plugin;
+
+        const patchedMethod = function (this: any, ...args: any[]) {
+            const excludeSet = new Set(plugin.settings.globalExcludeList);
+            
+            if (excludeSet.size > 0 && this.nodes && this.links) {
+                // Filter nodes
+                this.nodes = this.nodes.filter((n: any) => !excludeSet.has(n.id));
+                // Filter links
+                this.links = this.links.filter((l: any) => {
+                    const sourceId = l.source?.id || l.source;
+                    const targetId = l.target?.id || l.target;
+                    return !excludeSet.has(sourceId) && !excludeSet.has(targetId);
+                });
+            }
+            
+            return originalUpdateNodes.apply(this, args);
+        };
+
+        if (view.renderer.updateNodes) {
+            view.renderer.updateNodes = patchedMethod;
+        } else {
+            view.renderer.renderNodes = patchedMethod;
+        }
+    }
 }

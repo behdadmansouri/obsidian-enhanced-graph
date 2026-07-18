@@ -5,6 +5,7 @@ export interface EnhancedGraphSettings {
 
 	autoColorRootFolders: boolean;
 	customFolderColors: Record<string, string>;
+    globalExcludeList: string[];
 
     // Exact Default Values
     defaultCenterForce: number;
@@ -19,6 +20,7 @@ export const DEFAULT_SETTINGS: EnhancedGraphSettings = {
 
 	autoColorRootFolders: true,
 	customFolderColors: {},
+    globalExcludeList: [],
     defaultCenterForce: 1,
     defaultRepelForce: 20,
     defaultLinkForce: 1,
