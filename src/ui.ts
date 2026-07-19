@@ -109,15 +109,17 @@ export class MoveVisibleModal extends Modal {
 
 export class ExcludeSuggestModal extends FuzzySuggestModal<TFile> {
     onSelectCallback: (file: TFile) => void;
+    visibleFiles: TFile[];
 
-    constructor(app: App, onSelectCallback: (file: TFile) => void) {
+    constructor(app: App, visibleFiles: TFile[], onSelectCallback: (file: TFile) => void) {
         super(app);
+        this.visibleFiles = visibleFiles;
         this.onSelectCallback = onSelectCallback;
         this.setPlaceholder("Select a file to exclude from local graphs...");
     }
 
     getItems(): TFile[] {
-        return this.app.vault.getFiles();
+        return this.visibleFiles;
     }
 
     getItemText(file: TFile): string {

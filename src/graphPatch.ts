@@ -127,18 +127,90 @@ export class GraphPatcher {
     }
 
     enhanceGraphUI(leaf: WorkspaceLeaf, controls: HTMLElement) {
-        // A. Exclude Files UI
+        // A. Expandable Search Bar + Exclusion Trick
         const searchInputContainer = controls.querySelector('.search-input-container');
-        if (searchInputContainer && !searchInputContainer.parentElement?.querySelector('.exclude-panel-enhanced')) {
+        if (searchInputContainer) {
+            const nativeSearchInput = searchInputContainer.querySelector('input') as HTMLInputElement;
+            if (nativeSearchInput && !nativeSearchInput.dataset.enhancedSearch) {
+                nativeSearchInput.dataset.enhancedSearch = 'true';
+                nativeSearchInput.style.display = 'none';
+
+                const wrapper = document.createElement('div');
+                wrapper.style.display = 'flex';
+                wrapper.style.flexDirection = 'column';
+                wrapper.style.width = '100%';
+
+                const textarea = document.createElement('textarea');
+                textarea.style.resize = 'none';
+                textarea.style.minHeight = '30px';
+                textarea.style.height = '30px';
+                textarea.style.overflow = 'hidden';
+                textarea.style.width = '100%';
+                textarea.placeholder = nativeSearchInput.placeholder;
+                
+                // We shouldn't initially set the textarea to the full hidden string
+                const parts = (nativeSearchInput.value || '').split(' -file:');
+                textarea.value = parts[0] ? parts[0].trim() : '';
+
+                textarea.addEventListener('input', () => {
+                    textarea.style.height = '30px';
+                    textarea.style.height = textarea.scrollHeight + 'px';
+                });
+
+                const triggerSync = () => {
+                    let hiddenQuery = textarea.value;
+                    for (const f of this.settings.globalExcludeList) {
+                        hiddenQuery += ` -file:"${f}"`;
+                    }
+                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+                    if (nativeInputValueSetter) {
+                        nativeInputValueSetter.call(nativeSearchInput, hiddenQuery);
+                    } else {
+                        nativeSearchInput.value = hiddenQuery;
+                    }
+                    nativeSearchInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    nativeSearchInput.dispatchEvent(new Event('change', { bubbles: true }));
+                };
+
+                // Trigger on init
+                triggerSync();
+
+                // Save a reference so we can trigger it when exclude list changes
+                (leaf as any).triggerSearchSync = triggerSync;
+
+                const okBtn = document.createElement('button');
+                okBtn.innerText = 'OK';
+                okBtn.style.marginTop = '4px';
+                okBtn.style.alignSelf = 'flex-end';
+                okBtn.addEventListener('click', triggerSync);
+
+                wrapper.appendChild(textarea);
+                wrapper.appendChild(okBtn);
+
+                const parentContainer = nativeSearchInput.parentElement;
+                if (parentContainer) {
+                    parentContainer.style.height = 'auto';
+                    parentContainer.style.minHeight = '30px';
+                    parentContainer.style.overflow = 'visible';
+                    parentContainer.appendChild(wrapper);
+                }
+            }
+        }
+
+        // B. Exclude Files UI (Corrected Placement)
+        if (!controls.querySelector('.exclude-panel-enhanced')) {
             const excludePanel = document.createElement('div');
-            excludePanel.className = 'exclude-panel-enhanced';
+            excludePanel.className = 'exclude-panel-enhanced setting-item';
             excludePanel.style.marginTop = '10px';
+            excludePanel.style.display = 'block'; // override flex
+            excludePanel.style.borderTop = '1px solid var(--background-modifier-border)';
+            excludePanel.style.paddingTop = '10px';
 
             const addBtn = document.createElement('button');
             addBtn.innerText = 'Exclude File...';
             addBtn.className = 'mod-cta';
             addBtn.style.width = '100%';
-            addBtn.style.marginBottom = '5px';
+            addBtn.style.marginBottom = '10px';
             
             excludePanel.appendChild(addBtn);
 
@@ -174,6 +246,7 @@ export class GraphPatcher {
                         this.settings.globalExcludeList = this.settings.globalExcludeList.filter(f => f !== file);
                         await this.plugin.saveSettings();
                         renderList();
+                        if ((leaf as any).triggerSearchSync) (leaf as any).triggerSearchSync();
                         this.triggerGraphUpdate(leaf);
                     });
 
@@ -185,19 +258,153 @@ export class GraphPatcher {
             };
 
             addBtn.addEventListener('click', () => {
-                new ExcludeSuggestModal(this.app, async (file: TFile) => {
+                const visibleFiles = this.getVisibleFiles(leaf.view);
+                new ExcludeSuggestModal(this.app, visibleFiles, async (file: TFile) => {
                     const val = file.path;
                     if (!this.settings.globalExcludeList.includes(val)) {
                         this.settings.globalExcludeList.push(val);
                         await this.plugin.saveSettings();
                         renderList();
+                        if ((leaf as any).triggerSearchSync) (leaf as any).triggerSearchSync();
                         this.triggerGraphUpdate(leaf);
                     }
                 }).open();
             });
 
             renderList();
-            searchInputContainer.parentElement?.insertBefore(excludePanel, searchInputContainer.nextSibling);
+            
+            // Append to controls
+            controls.appendChild(excludePanel);
+        }
+
+        // C. Deep Graph Explorer Widget
+        if (!controls.querySelector('.deep-graph-explorer')) {
+            const explorerPanel = document.createElement('div');
+            explorerPanel.className = 'deep-graph-explorer setting-item';
+            explorerPanel.style.marginTop = '10px';
+            explorerPanel.style.display = 'block';
+            explorerPanel.style.borderTop = '1px solid var(--background-modifier-border)';
+            explorerPanel.style.paddingTop = '10px';
+
+            const title = document.createElement('div');
+            title.innerText = 'Deep Explorer (Hops 6+)';
+            title.style.fontWeight = 'bold';
+            title.style.marginBottom = '5px';
+            explorerPanel.appendChild(title);
+
+            const inputRow = document.createElement('div');
+            inputRow.style.display = 'flex';
+            inputRow.style.gap = '5px';
+            inputRow.style.marginBottom = '10px';
+
+            const depthInput = document.createElement('input');
+            depthInput.type = 'number';
+            depthInput.min = '1';
+            depthInput.max = '20';
+            depthInput.value = '6';
+            depthInput.style.flex = '1';
+
+            const runBtn = document.createElement('button');
+            runBtn.innerText = 'Find Files';
+            runBtn.className = 'mod-cta';
+
+            inputRow.appendChild(depthInput);
+            inputRow.appendChild(runBtn);
+            explorerPanel.appendChild(inputRow);
+
+            const resultContainer = document.createElement('div');
+            resultContainer.style.maxHeight = '150px';
+            resultContainer.style.overflowY = 'auto';
+            resultContainer.style.fontSize = 'var(--font-ui-smaller)';
+            explorerPanel.appendChild(resultContainer);
+
+            runBtn.addEventListener('click', () => {
+                resultContainer.empty();
+                resultContainer.innerText = 'Calculating...';
+                
+                setTimeout(() => {
+                    const depth = parseInt(depthInput.value) || 6;
+                    
+                    const rootFile = (leaf.view as any).file;
+                    if (!rootFile) {
+                        resultContainer.innerText = 'Error: No root file found.';
+                        return;
+                    }
+
+                    const resolvedLinks = this.app.metadataCache.resolvedLinks;
+                    const excludedSet = new Set(this.settings.globalExcludeList);
+                    
+                    const queue: {path: string, dist: number}[] = [{path: rootFile.path, dist: 0}];
+                    const visited = new Set<string>();
+                    visited.add(rootFile.path);
+
+                    const reverseLinks: Record<string, string[]> = {};
+                    const backOn = (leaf.view as any).engine?.options?.localBacklinks !== false;
+                    
+                    if (backOn) {
+                        for (const source in resolvedLinks) {
+                            if (excludedSet.has(source)) continue;
+                            for (const target in resolvedLinks[source]) {
+                                if (!reverseLinks[target]) reverseLinks[target] = [];
+                                reverseLinks[target].push(source);
+                            }
+                        }
+                    }
+
+                    const resultsByDepth: Record<number, string[]> = {};
+
+                    while (queue.length > 0) {
+                        const {path, dist} = queue.shift()!;
+                        
+                        if (!resultsByDepth[dist]) resultsByDepth[dist] = [];
+                        resultsByDepth[dist].push(path);
+
+                        if (dist >= depth) continue;
+
+                        const neighbors = new Set<string>();
+                        
+                        const forward = resolvedLinks[path];
+                        if (forward) {
+                            for (const target in forward) {
+                                neighbors.add(target);
+                            }
+                        }
+
+                        if (backOn && reverseLinks[path]) {
+                            for (const source of reverseLinks[path]) {
+                                neighbors.add(source);
+                            }
+                        }
+
+                        for (const n of neighbors) {
+                            if (!visited.has(n) && !excludedSet.has(n)) {
+                                visited.add(n);
+                                queue.push({path: n, dist: dist + 1});
+                            }
+                        }
+                    }
+
+                    resultContainer.empty();
+                    const targetResults = resultsByDepth[depth] || [];
+                    
+                    if (targetResults.length === 0) {
+                        resultContainer.innerText = `No files found at exact depth ${depth}.`;
+                        return;
+                    }
+
+                    resultContainer.innerText = `Found ${targetResults.length} files at depth ${depth}:\n`;
+                    for (const res of targetResults) {
+                        const row = document.createElement('div');
+                        row.innerText = res;
+                        row.style.whiteSpace = 'nowrap';
+                        row.style.overflow = 'hidden';
+                        row.style.textOverflow = 'ellipsis';
+                        resultContainer.appendChild(row);
+                    }
+                }, 10);
+            });
+
+            controls.appendChild(explorerPanel);
         }
 
         // C. Move Visible Nodes Button
