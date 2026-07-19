@@ -1,4 +1,4 @@
-import { App, Modal, Setting, Notice, TFile, TFolder } from 'obsidian';
+import { App, Modal, Setting, Notice, TFile, TFolder, FuzzySuggestModal } from 'obsidian';
 
 export class MoveVisibleModal extends Modal {
     targetFolder: string = '';
@@ -104,5 +104,27 @@ export class MoveVisibleModal extends Modal {
     onClose() {
         const { contentEl } = this;
         contentEl.empty();
+    }
+}
+
+export class ExcludeSuggestModal extends FuzzySuggestModal<TFile> {
+    onSelectCallback: (file: TFile) => void;
+
+    constructor(app: App, onSelectCallback: (file: TFile) => void) {
+        super(app);
+        this.onSelectCallback = onSelectCallback;
+        this.setPlaceholder("Select a file to exclude from local graphs...");
+    }
+
+    getItems(): TFile[] {
+        return this.app.vault.getFiles();
+    }
+
+    getItemText(file: TFile): string {
+        return file.path;
+    }
+
+    onChooseItem(file: TFile, evt: MouseEvent | KeyboardEvent) {
+        this.onSelectCallback(file);
     }
 }

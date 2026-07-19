@@ -1,7 +1,7 @@
 import { App, WorkspaceLeaf, TFile, TFolder } from 'obsidian';
 import { EnhancedGraphSettings } from './settings';
 import EnhancedGraphPlugin from './main';
-import { MoveVisibleModal } from './ui';
+import { MoveVisibleModal, ExcludeSuggestModal } from './ui';
 
 export class GraphPatcher {
     app: App;
@@ -127,39 +127,20 @@ export class GraphPatcher {
     }
 
     enhanceGraphUI(leaf: WorkspaceLeaf, controls: HTMLElement) {
-        // A. Exclude Files UI (replaces custom search bar text area)
+        // A. Exclude Files UI
         const searchInputContainer = controls.querySelector('.search-input-container');
         if (searchInputContainer && !searchInputContainer.parentElement?.querySelector('.exclude-panel-enhanced')) {
             const excludePanel = document.createElement('div');
             excludePanel.className = 'exclude-panel-enhanced';
             excludePanel.style.marginTop = '10px';
-            excludePanel.style.padding = '10px';
-            excludePanel.style.border = '1px solid var(--background-modifier-border)';
-            excludePanel.style.borderRadius = '4px';
-
-            const title = document.createElement('div');
-            title.innerText = 'Excluded Files';
-            title.style.fontWeight = 'bold';
-            title.style.marginBottom = '5px';
-            excludePanel.appendChild(title);
-
-            const inputRow = document.createElement('div');
-            inputRow.style.display = 'flex';
-            inputRow.style.gap = '5px';
-            inputRow.style.marginBottom = '10px';
-
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.placeholder = 'Exact file name...';
-            input.style.flex = '1';
 
             const addBtn = document.createElement('button');
-            addBtn.innerText = 'Add';
+            addBtn.innerText = 'Exclude File...';
             addBtn.className = 'mod-cta';
-
-            inputRow.appendChild(input);
-            inputRow.appendChild(addBtn);
-            excludePanel.appendChild(inputRow);
+            addBtn.style.width = '100%';
+            addBtn.style.marginBottom = '5px';
+            
+            excludePanel.appendChild(addBtn);
 
             const listContainer = document.createElement('div');
             listContainer.style.display = 'flex';
@@ -171,21 +152,24 @@ export class GraphPatcher {
                 listContainer.empty();
                 for (const file of this.settings.globalExcludeList) {
                     const item = document.createElement('div');
-                    item.style.display = 'flex';
-                    item.style.justifyContent = 'space-between';
-                    item.style.alignItems = 'center';
-                    item.style.fontSize = '12px';
+                    item.className = 'setting-item';
+                    item.style.padding = '5px 0';
+                    item.style.border = 'none';
 
-                    const name = document.createElement('span');
+                    const nameInfo = document.createElement('div');
+                    nameInfo.className = 'setting-item-info';
+                    const name = document.createElement('div');
+                    name.className = 'setting-item-name';
                     name.innerText = file;
-                    name.style.overflow = 'hidden';
-                    name.style.textOverflow = 'ellipsis';
-                    name.style.whiteSpace = 'nowrap';
+                    name.style.fontSize = 'var(--font-ui-smaller)';
+                    nameInfo.appendChild(name);
+
+                    const control = document.createElement('div');
+                    control.className = 'setting-item-control';
 
                     const delBtn = document.createElement('button');
                     delBtn.innerText = 'X';
-                    delBtn.style.padding = '0 4px';
-                    delBtn.style.height = '20px';
+                    delBtn.style.padding = '0 8px';
                     delBtn.addEventListener('click', async () => {
                         this.settings.globalExcludeList = this.settings.globalExcludeList.filter(f => f !== file);
                         await this.plugin.saveSettings();
@@ -193,73 +177,27 @@ export class GraphPatcher {
                         this.triggerGraphUpdate(leaf);
                     });
 
-                    item.appendChild(name);
-                    item.appendChild(delBtn);
+                    control.appendChild(delBtn);
+                    item.appendChild(nameInfo);
+                    item.appendChild(control);
                     listContainer.appendChild(item);
                 }
             };
 
-            addBtn.addEventListener('click', async () => {
-                const val = input.value.trim();
-                if (val && !this.settings.globalExcludeList.includes(val)) {
-                    this.settings.globalExcludeList.push(val);
-                    await this.plugin.saveSettings();
-                    input.value = '';
-                    renderList();
-                    this.triggerGraphUpdate(leaf);
-                }
+            addBtn.addEventListener('click', () => {
+                new ExcludeSuggestModal(this.app, async (file: TFile) => {
+                    const val = file.path;
+                    if (!this.settings.globalExcludeList.includes(val)) {
+                        this.settings.globalExcludeList.push(val);
+                        await this.plugin.saveSettings();
+                        renderList();
+                        this.triggerGraphUpdate(leaf);
+                    }
+                }).open();
             });
 
             renderList();
             searchInputContainer.parentElement?.insertBefore(excludePanel, searchInputContainer.nextSibling);
-
-            // Hook Alt+Click on Canvas
-            this.hookAltClick(leaf, renderList);
-        }
-
-        // B. Depth Slider to 10
-        const labels = controls.querySelectorAll('.tree-item-self');
-        for (let i = 0; i < labels.length; i++) {
-            const label = labels[i] as HTMLElement;
-            if (label.innerText.toLowerCase().includes('depth') || label.innerText.toLowerCase().includes('jumps')) {
-                const parent = label.parentElement;
-                if (parent) {
-                    const originalRange = parent.querySelector('input[type="range"]') as HTMLInputElement;
-                    // Fully replace the React slider to break its 5-max limit
-                    if (originalRange && !originalRange.dataset.enhanced) {
-                        originalRange.dataset.enhanced = 'true';
-                        originalRange.style.display = 'none'; // Hide native React slider
-
-                        const customRange = document.createElement('input');
-                        customRange.type = 'range';
-                        customRange.min = '1';
-                        customRange.max = '10';
-                        customRange.step = '1';
-                        customRange.className = originalRange.className;
-                        
-                        // Sync initial value from engine
-                        const engine = (leaf.view as any).engine;
-                        customRange.value = engine?.options?.localJumps?.toString() || '1';
-
-                        const textDisplay = parent.querySelector('.slider-readout');
-                        if (textDisplay) textDisplay.textContent = customRange.value;
-
-                        customRange.addEventListener('input', (e) => {
-                            const val = (e.target as HTMLInputElement).value;
-                            if (textDisplay) textDisplay.textContent = val;
-                            
-                            // Immediately apply jumps to engine to bypass ViewState strict clamp
-                            if (engine && engine.options) {
-                                engine.options.localJumps = parseInt(val, 10);
-                                if (typeof engine.update === 'function') engine.update();
-                                else if (typeof engine.render === 'function') engine.render();
-                            }
-                        });
-
-                        originalRange.parentElement?.appendChild(customRange);
-                    }
-                }
-            }
         }
 
         // C. Move Visible Nodes Button
@@ -312,36 +250,7 @@ export class GraphPatcher {
         }
     }
 
-    hookAltClick(leaf: WorkspaceLeaf, renderList: () => void) {
-        const view: any = leaf.view;
-        if (!view.containerEl) return;
-        
-        const canvas = view.containerEl.querySelector('canvas');
-        if (!canvas || canvas.dataset.altClickHooked) return;
-        canvas.dataset.altClickHooked = 'true';
 
-        canvas.addEventListener('click', async (e: MouseEvent) => {
-            if (e.altKey) {
-                // Find hovered node
-                const renderer = view.renderer;
-                if (!renderer) return;
-                
-                // Usually PIXI stores the hovered node in hoverNode or interactiveNode
-                const node = renderer.hoverNode || renderer.hoveredNode || renderer.nodeUnderMouse || renderer.highlightedNode;
-                if (node && node.id) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const val = node.id;
-                    if (!this.settings.globalExcludeList.includes(val)) {
-                        this.settings.globalExcludeList.push(val);
-                        await this.plugin.saveSettings();
-                        renderList();
-                        this.triggerGraphUpdate(leaf);
-                    }
-                }
-            }
-        }, true); // use capture phase
-    }
 
     patchRendererUpdateNodes(leaf: WorkspaceLeaf, view: any) {
         if (!view.renderer) return;
